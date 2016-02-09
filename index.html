@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=utf-8 />
+    <title>LegisGraphSpatial</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <script src='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.js'></script>
+    <link href='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.css' rel='stylesheet' />
+    <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+    <script src="/lib/typeahead.bundle.min.js"></script>
+    <style>
+        body { margin:0; padding:0; }
+        #map { position:absolute; top:0; bottom:0; width:100%; }
+        .search-ui {
+            position:absolute;
+            top:10px;
+            right:10px;
+            z-index:1000;
+        }
+
+    </style>
+</head>
+<body>
+<div id='map'></div>
+<input id='search' type='text' class='search-ui' placeholder='Enter committee' />
+
+<script>
+
+    var findGeometriesPath = '/db/data/ext/SpatialPlugin/graphdb/findGeometriesWithinDistance';
+    var baseURI = 'http://52.70.212.93';
+
+
+    function clearMap(m) {
+        for(i in m._layers) {
+            if(m._layers[i]._path != undefined) {
+                try {
+                    m.removeLayer(m._layers[i]);
+                }
+                catch(e) {
+                    console.log("problem with " + e + m._layers[i]);
+                }
+            }
+        }
+    }
+
+    function parseWKTPolygon(wkt) {
+        var pointArr = [];
+        var points = wkt.slice(10, -3).split(",");
+        $.each(points, function(i,v) {
+            var point = $.trim(v).split(" ");
+            var xy = [Number(point[1]), Number(point[0])];
+            pointArr.push(xy)
+
+        });
+
+        return pointArr;
+
+
+    }
+
+    function infoDistrictWithinDistance(latlng, distance) {
+        // duplicate python functionality
+        // 1. district = find_district_with_distance(lon, lat, distance, "geom")
+        // 2. execute query with district as a parameter:
+
+        var districtParams = {
+            "layer": "geom",
+            "pointX": latlng.lng,
+            "pointY": latlng.lat,
+            "distanceInKm": distance
+        };
+
+        var districtURL = baseURI + findGeometriesPath;
+        makePOSTRequest(districtURL, districtParams, function (error, data) {
+
+            if (error) {
+                console.log("Error");
+            } else {
+                console.log(data);
+                var query = "MATCH (d:District {state: {state}, district: {district}}) " +
+                        "MATCH (d)<-[:REPRESENTS]-(l:Legislator) " +
+                        "MATCH (l)-[:SERVES_ON]->(c:Committee) " +
+                        "MATCH (c)<-[:REFERRED_TO]-(b:Bill) " +
+                        "MATCH (b)-[:DEALS_WITH]->(s:Subject) " +
+                        "WITH l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 " +
+                        "WITH {lastName: lastName, firstName: firstName, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects " +
+                        "RETURN {legislator: legislator, subjects: subjects} AS r ";
+                // return results
+
+                var params = {
+                    "state": data[0]["data"]["state"],
+                    "district": data[0]["data"]["district"]
+                };
+
+                var points = parseWKTPolygon(data[0]["data"]["wkt"]);
+
+                makeCypherRequest([{"statement": query, "parameters": params}], function (error, data) {
+
+                    if (error) {
+                        console.log("Error");
+                    } else {
+                        console.log(data);
+
+                        var districtInfo = data["results"][0]["data"][0]["row"][0];
+                        districtInfo["points"] = points;
+                        districtInfo["state"] = params["state"];
+                        districtInfo["district"] = params["district"];
+                        //districtInfo["data"] =
+                        console.log(districtInfo);
+
+                        addDistrictToMap(districtInfo, latlng);
+                    }
+                });
+            }
+        });
+    }
+
+    function makePOSTRequest(url, params, callback) {
+        // sample params:
+        // params = {
+        //   "layer": "geom",
+        //   "pointX": longitude,
+        //   "pointY": latitude,
+        //   "distanceInKm": distance
+        // }
+
+
+        $.ajax({
+            type: 'POST',
+            data: JSON.stringify(params),
+            contentType: 'application/json',
+            url: url,
+            error: function(xhr, statusText, errorThrown) {
+                callback("Error", null);
+            },
+            //headers: authHeader()
+            success: function(data) {
+                console.log(data);
+                callback(null, data);
+            }
+        })
+    }
+
+    function makeCypherRequest(statements, callback) {
+
+        var url = baseURI.replace(/\/db\/data.*/,"") + "/db/data/transaction/commit";
+
+        $.ajax({
+            type: 'POST',
+            data: JSON.stringify({
+                statements: statements
+            }),
+            contentType: 'application/json',
+            url: url,
+            error: function(xhr, statusText, errorThrown){
+                //$('#statusTextArea').val(xhr.responseText || "Request failed, check authorization settings.");
+                //$('#importButton').empty().text('Import');
+                callback("Error", null);
+            },
+            //headers: authHeader(),
+            success: function(data) {
+                console.log(data);
+                //$('#statusTextArea').val($('#statusTextArea').val() + JSON.stringify(data, null, 4));
+                //$('#statusTextArea').scrollTop($('#statusTextArea')[0].scrollHeight);
+                callback(null, data);
+
+            }
+        });
+    }
+
+    function addDistrictToMap(data, latlng) {
+        polygon_points = data["points"];
+        district = data["district"];
+        state = data["state"];
+
+        popuptext = "\n";
+
+        legislator = data["legislator"];
+        committees = data['legislator']["committees"];
+        subjects = data["subjects"];
+
+        popuptext += JSON.stringify(committees);
+        popuptext += "\n";
+        popuptext += JSON.stringify(subjects);
+
+
+        console.log(polygon_points);
+
+        // Define polyline options
+        // http://leafletjs.com/reference.html#polyline
+
+
+        var polyline = L.polygon(polygon_points, {color: 'brown'}).addTo(map);
+        map.fitBounds(polyline.getBounds());
+
+        var popup = L.popup();
+        popup.setLatLng(latlng)
+                .setContent("Rep: " + legislator["firstName"] + " " + legislator["lastName"] + "\n Distict: " + district + " in state: " + state + popuptext )
+                .openOn(map);
+
+    }
+
+
+
+    function getClosestDistrict(event) {
+        var lat = event.latlng.lat,
+            lon = event.latlng.lng;
+
+        console.log(event);
+
+        infoDistrictWithinDistance(event.latlng, 10);
+
+//        $.ajax({
+//            url: "http://localhost:5000/infoDistrictWithinDistance",
+//            type: "GET",
+//            data: {
+//                "lat": lat,
+//                "lon": lon,
+//                "distance": 1
+//            },
+//            contentType: "application/json",
+//            success: function(response, data) {
+//                console.log(response);
+//                console.log(data);
+//
+//                clearMap(map);
+//
+//                addDistrictToMap(response, event.latlng);
+//
+//
+//
+//
+//
+//
+//            },
+//            error: function(xhr) {
+//                console.log(xhr);
+//            }
+//        })
+
+    }
+
+
+    L.mapbox.accessToken = 'pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q';
+    var map = L.mapbox.map('map', 'mapbox.streets')
+            .setView([39.8282, -98.5795], 5);
+
+    map.on('click', function(e) {
+        clearMap(map);
+        getClosestDistrict(e);
+
+
+    });
+
+
+
+
+</script>
+</body>
+</html>
