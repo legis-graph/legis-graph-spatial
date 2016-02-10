@@ -26,12 +26,18 @@
 
 <script>
 
+    /**
+     * Constants
+     */
     var findGeometriesPath = '/db/data/ext/SpatialPlugin/graphdb/findGeometriesWithinDistance';
-    var baseURI = 'http://52.70.212.93';
+    var baseURI = 'http://52.70.212.93'; // Neo4j server with legis-graph configured
+    var MB_API_TOKEN = "pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q";
 
-
+    /**
+     * Clears the map. Remove all currently shown layers
+     * */
     function clearMap(m) {
-        for(i in m._layers) {
+        for(var i in m._layers) {
             if(m._layers[i]._path != undefined) {
                 try {
                     m.removeLayer(m._layers[i]);
@@ -43,9 +49,13 @@
         }
     }
 
+    /**
+     *  Converts Polygon WKT string to an array of [x,y] points
+     */
     function parseWKTPolygon(wkt) {
         var pointArr = [];
         var points = wkt.slice(10, -3).split(",");
+
         $.each(points, function(i,v) {
             var point = $.trim(v).split(" ");
             var xy = [Number(point[1]), Number(point[0])];
@@ -54,14 +64,34 @@
         });
 
         return pointArr;
-
-
     }
 
+    /**
+     * Make an AJAX POST request
+     */
+    function makePOSTRequest(url, params, callback) {
+
+        $.ajax({
+            type: 'POST',
+            data: JSON.stringify(params),
+            contentType: 'application/json',
+            url: url,
+            error: function(xhr, statusText, errorThrown) {
+                callback("Error", null);
+            },
+            //headers: authHeader()
+            success: function(data) {
+                console.log(data);
+                callback(null, data);
+            }
+        })
+    }
+
+
+    /**
+     *
+     */
     function infoDistrictWithinDistance(latlng, distance) {
-        // duplicate python functionality
-        // 1. district = find_district_with_distance(lon, lat, distance, "geom")
-        // 2. execute query with district as a parameter:
 
         var districtParams = {
             "layer": "geom",
@@ -115,32 +145,9 @@
         });
     }
 
-    function makePOSTRequest(url, params, callback) {
-        // sample params:
-        // params = {
-        //   "layer": "geom",
-        //   "pointX": longitude,
-        //   "pointY": latitude,
-        //   "distanceInKm": distance
-        // }
-
-
-        $.ajax({
-            type: 'POST',
-            data: JSON.stringify(params),
-            contentType: 'application/json',
-            url: url,
-            error: function(xhr, statusText, errorThrown) {
-                callback("Error", null);
-            },
-            //headers: authHeader()
-            success: function(data) {
-                console.log(data);
-                callback(null, data);
-            }
-        })
-    }
-
+    /**
+     *  Run a Cypher query
+     */
     function makeCypherRequest(statements, callback) {
 
         var url = baseURI.replace(/\/db\/data.*/,"") + "/db/data/transaction/commit";
@@ -153,15 +160,11 @@
             contentType: 'application/json',
             url: url,
             error: function(xhr, statusText, errorThrown){
-                //$('#statusTextArea').val(xhr.responseText || "Request failed, check authorization settings.");
-                //$('#importButton').empty().text('Import');
                 callback("Error", null);
             },
             //headers: authHeader(),
             success: function(data) {
                 console.log(data);
-                //$('#statusTextArea').val($('#statusTextArea').val() + JSON.stringify(data, null, 4));
-                //$('#statusTextArea').scrollTop($('#statusTextArea')[0].scrollHeight);
                 callback(null, data);
 
             }
@@ -206,42 +209,12 @@
         var lat = event.latlng.lat,
             lon = event.latlng.lng;
 
-        console.log(event);
-
         infoDistrictWithinDistance(event.latlng, 10);
-
-//        $.ajax({
-//            url: "http://localhost:5000/infoDistrictWithinDistance",
-//            type: "GET",
-//            data: {
-//                "lat": lat,
-//                "lon": lon,
-//                "distance": 1
-//            },
-//            contentType: "application/json",
-//            success: function(response, data) {
-//                console.log(response);
-//                console.log(data);
-//
-//                clearMap(map);
-//
-//                addDistrictToMap(response, event.latlng);
-//
-//
-//
-//
-//
-//
-//            },
-//            error: function(xhr) {
-//                console.log(xhr);
-//            }
-//        })
 
     }
 
 
-    L.mapbox.accessToken = 'pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q';
+    L.mapbox.accessToken = MB_API_TOKEN;
     var map = L.mapbox.map('map', 'mapbox.streets')
             .setView([39.8282, -98.5795], 5);
 
@@ -249,11 +222,7 @@
         clearMap(map);
         getClosestDistrict(e);
 
-
     });
-
-
-
 
 </script>
 </body>
