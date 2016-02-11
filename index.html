@@ -7,7 +7,7 @@
     <script src='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.js'></script>
     <link href='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.css' rel='stylesheet' />
     <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
-    <script src="/lib/typeahead.bundle.min.js"></script>
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { margin:0; padding:0; }
         #map { position:absolute; top:0; bottom:0; width:100%; }
@@ -17,13 +17,14 @@
             right:10px;
             z-index:1000;
         }
+        .committees {
+            margin-left: 0px;
+        }
 
     </style>
 </head>
 <body>
 <div id='map'></div>
-<input id='search' type='text' class='search-ui' placeholder='Enter committee' />
-
 <script>
 
     /**
@@ -89,7 +90,8 @@
 
 
     /**
-     *
+     *  Find the District for a given latlng.
+     *  Find the representative, commitees and subjects for that rep.
      */
     function infoDistrictWithinDistance(latlng, distance) {
 
@@ -112,8 +114,8 @@
                         "MATCH (l)-[:SERVES_ON]->(c:Committee) " +
                         "MATCH (c)<-[:REFERRED_TO]-(b:Bill) " +
                         "MATCH (b)-[:DEALS_WITH]->(s:Subject) " +
-                        "WITH l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 " +
-                        "WITH {lastName: lastName, firstName: firstName, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects " +
+                        "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 " +
+                        "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects " +
                         "RETURN {legislator: legislator, subjects: subjects} AS r ";
                 // return results
 
@@ -135,7 +137,6 @@
                         districtInfo["points"] = points;
                         districtInfo["state"] = params["state"];
                         districtInfo["district"] = params["district"];
-                        //districtInfo["data"] =
                         console.log(districtInfo);
 
                         addDistrictToMap(districtInfo, latlng);
@@ -171,46 +172,74 @@
         });
     }
 
+    function buildPopup(d) {
+
+        var legislator = d["legislator"];
+        var committees = legislator["committees"];
+        var legislatorName = "Rep. " + legislator["firstName"] + " " + legislator["lastName"];
+        var imgURL= "https://www.govtrack.us/data/photos/" + legislator["govtrackID"] + "-50px.jpeg";
+        var subjects = d["subjects"];
+
+        var text =
+
+            '<div class="row">' +
+                '<div class="col-xs-3">' +
+                    '<img src="'+ imgURL + '">' +
+                '</div>' +
+                '<div class="col-xs-9">' +
+                    '<ul class="list-unstyled">' +
+                    '<li><strong>' + legislatorName + '</strong></li>' +
+                    '<li>District: ' + d["district"] + '</li>' +
+                    '<li>State: ' + d["state"] + '</li>' +
+                '</div>' +
+            '</div>' +
+
+            '<div class="row committees">' +
+                '<dl><dt>Committees</dt>';
+
+        $.each(committees, function(i,v) {
+                text = text + '<dd>' + v + '</dd>';
+        });
+           text = text +
+                '</dl>' +
+            '</div>' +
+
+            '<div class="row">' +
+                '<ul>';
+        $.each(subjects, function(i,v) {
+            text = text + '<li>' + v["subject"] + " (" + v["strength"] + ")";
+        });
+                    text = text +
+                '</ul>' +
+            '</div>'
+            ;
+
+
+
+        return text;
+    }
+
     function addDistrictToMap(data, latlng) {
         polygon_points = data["points"];
-        district = data["district"];
-        state = data["state"];
 
-        popuptext = "\n";
-
-        legislator = data["legislator"];
-        committees = data['legislator']["committees"];
-        subjects = data["subjects"];
-
-        popuptext += JSON.stringify(committees);
-        popuptext += "\n";
-        popuptext += JSON.stringify(subjects);
-
-
-        console.log(polygon_points);
-
-        // Define polyline options
-        // http://leafletjs.com/reference.html#polyline
-
+        popuptext = buildPopup(data);
 
         var polyline = L.polygon(polygon_points, {color: 'brown'}).addTo(map);
         map.fitBounds(polyline.getBounds());
 
-        var popup = L.popup();
+        var popup = L.popup({keepInView: true, minWidth: 350, maxWidth: 1000});
         popup.setLatLng(latlng)
-                .setContent("Rep: " + legislator["firstName"] + " " + legislator["lastName"] + "\n Distict: " + district + " in state: " + state + popuptext )
+                .setContent(popuptext)
                 .openOn(map);
+
+        popup.update();
 
     }
 
 
 
     function getClosestDistrict(event) {
-        var lat = event.latlng.lat,
-            lon = event.latlng.lng;
-
         infoDistrictWithinDistance(event.latlng, 10);
-
     }
 
 
