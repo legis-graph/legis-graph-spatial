@@ -8,6 +8,7 @@
     <link href='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.css' rel='stylesheet' />
     <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
     <style>
         body { margin:0; padding:0; }
         #map { position:absolute; top:100px; bottom:0; width:100%; }
@@ -53,6 +54,15 @@
     var findGeometriesPath = '/db/data/ext/SpatialPlugin/graphdb/findGeometriesWithinDistance';
     var baseURI = 'http://52.70.212.93'; // Neo4j server with legis-graph configured
     var MB_API_TOKEN = "pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q";
+
+    var subjectsQuery = "MATCH (d:District {state: {state}, district: {district}}) \n" +
+            "MATCH (d)<-[:REPRESENTS]-(l:Legislator) \n" +
+            "MATCH (l)-[:SERVES_ON]->(c:Committee) \n" +
+            "MATCH (c)<-[:REFERRED_TO]-(b:Bill) \n" +
+            "MATCH (b)-[:DEALS_WITH]->(s:Subject) \n" +
+            "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
+            "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
+            "RETURN {legislator: legislator, subjects: subjects} AS r ";
 
     /**
      * Clears the map. Remove all currently shown layers
@@ -129,15 +139,6 @@
                 console.log("Error");
             } else {
                 console.log(data);
-                var query = "MATCH (d:District {state: {state}, district: {district}}) " +
-                        "MATCH (d)<-[:REPRESENTS]-(l:Legislator) " +
-                        "MATCH (l)-[:SERVES_ON]->(c:Committee) " +
-                        "MATCH (c)<-[:REFERRED_TO]-(b:Bill) " +
-                        "MATCH (b)-[:DEALS_WITH]->(s:Subject) " +
-                        "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 " +
-                        "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects " +
-                        "RETURN {legislator: legislator, subjects: subjects} AS r ";
-                // return results
 
                 var params = {
                     "state": data[0]["data"]["state"],
@@ -146,7 +147,7 @@
 
                 var points = parseWKTPolygon(data[0]["data"]["wkt"]);
 
-                makeCypherRequest([{"statement": query, "parameters": params}], function (error, data) {
+                makeCypherRequest([{"statement": subjectsQuery, "parameters": params}], function (error, data) {
 
                     if (error) {
                         console.log("Error");
@@ -206,37 +207,49 @@
         var subjects = d["subjects"];
 
         var text =
-
-            '<div class="row">' +
-                '<div class="col-xs-3">' +
-                    '<img src="'+ imgURL + '">' +
-                '</div>' +
-                '<div class="col-xs-9">' +
-                    '<ul class="list-unstyled">' +
-                    '<li><strong>' + legislatorName + '</strong></li>' +
-                    '<li>District: ' + d["district"] + '</li>' +
-                    '<li>State: ' + d["state"] + '</li>' +
-                '</div>' +
-            '</div>' +
-
-            '<div class="row committees">' +
-                '<dl><dt>Committees</dt>';
-
-        $.each(committees, function(i,v) {
-                text = text + '<dd>' + v + '</dd>';
-        });
-           text = text +
-                '</dl>' +
-            '</div>' +
-
-            '<div class="row">' +
-                '<ul>';
-        $.each(subjects, function(i,v) {
-            text = text + '<li>' + v["subject"] + " (" + v["strength"] + ")";
-        });
-                    text = text +
+                '<ul class="nav nav-tabs" role="tablist">' +
+                    '<li role="presentation" class="active"><a href="#home" aria-controls="home" role="tab" data-toggle="tab">Info</a></li>' +
+                    '<li role="presentation"><a href="#code" aria-controls="code" role="tab" data-toggle="tab">Code</a></li>' +
                 '</ul>' +
-            '</div>'
+            '<div class="tab-content">' +
+                '<div role="tabpanel" class="tab-pane active" id="home">' +
+
+                    '<div class="row">' +
+                        '<div class="col-xs-3">' +
+                            '<img src="'+ imgURL + '">' +
+                        '</div>' +
+                        '<div class="col-xs-9">' +
+                            '<ul class="list-unstyled">' +
+                            '<li><strong>' + legislatorName + '</strong></li>' +
+                            '<li>District: ' + d["district"] + '</li>' +
+                            '<li>State: ' + d["state"] + '</li>' +
+                        '</div>' +
+                    '</div>' +
+
+                    '<div class="row committees">' +
+                        '<dl><dt>Committees</dt>';
+
+                $.each(committees, function(i,v) {
+                        text = text + '<dd>' + v + '</dd>';
+                });
+                   text = text +
+                        '</dl>' +
+                    '</div>' +
+
+                    '<div class="row">' +
+                        '<ul>';
+                $.each(subjects, function(i,v) {
+                    text = text + '<li>' + v["subject"] + " (" + v["strength"] + ")";
+                });
+                            text = text +
+                        '</ul>' +
+                    '</div>' +
+                '</div>' +
+            '<div role="tabpanel" class="tab-pane" id="code">' +
+                '<pre class="pre-scrollable">' + subjectsQuery + '</pre>' +
+            '</div>' +
+
+        '</div>'
             ;
 
 
