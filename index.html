@@ -257,6 +257,12 @@
         return text;
     }
 
+    /**
+     *  Add District polygon and legislator popup to map
+     *
+     * @param data
+     * @param latlng
+     */
     function addDistrictToMap(data, latlng) {
         polygon_points = data["points"];
 
@@ -275,7 +281,11 @@
     }
 
 
-
+    /**
+     * Event handler for map click
+     *
+     * @param event
+     */
     function getClosestDistrict(event) {
         infoDistrictWithinDistance(event.latlng, 10);
     }
