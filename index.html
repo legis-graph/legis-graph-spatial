@@ -11,7 +11,9 @@
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
     <style>
         body { margin:0; padding:0; }
-        #map { position:absolute; top:100px; bottom:0; width:100%; }
+        #map { top:100px; height:100vh;}
+
+
 
         #desc{
             position:absolute;
@@ -20,6 +22,18 @@
             height: 100px;
             width:100%;
 
+        }
+
+        #bill-panel {
+            top:100px;
+            height:100vh;
+
+        }
+
+        #bill-panel-content {
+            top:100px;
+            height:100vh;
+            overflow: scroll;
         }
 
         .committees {
@@ -45,7 +59,22 @@
 
     </div>
 </div>
-<div id='map'></div>
+
+<div class="row">
+
+    <div class="col-xs-9">
+        <div id='map'></div>
+    </div>
+    <div class="col-xs-3" id="bill-panel">
+        <div class="panel panel-default">
+            <div class="panel-body" id="bill-panel-content">
+                Panel content
+            </div>
+        </div>
+
+    </div>
+</div>
+
 <script>
 
     /**
@@ -55,6 +84,9 @@
     var baseURI = 'http://52.70.212.93'; // Neo4j server with legis-graph configured
     var MB_API_TOKEN = "pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q";
 
+    // Given a district and state, find the legislator that represents the district, the committees
+    //  that legislator serves on, the bills referred to those committees, and the subjects of those bills
+    //  we can say that the legislator has influence over those subjects through these committees
     var subjectsQuery = "MATCH (d:District {state: {state}, district: {district}}) \n" +
             "MATCH (d)<-[:REPRESENTS]-(l:Legislator) \n" +
             "MATCH (l)-[:SERVES_ON]->(c:Committee) \n" +
@@ -63,6 +95,18 @@
             "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
             "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
             "RETURN {legislator: legislator, subjects: subjects} AS r ";
+
+    // Given a legislator ID and subject, find the bills dealing with that subject that the legislator had
+    // influence over through their committees
+    var billsQuery = "MATCH (l:Legislator {govtrackID: {govtrackID}}) \n" +
+                    "MATCH (s:Subject {title: {subject}})<-[:DEALS_WITH]-(b:Bill)-[:REFERRED_TO]->(:Committee)<-[:SERVES_ON]-(l) \n" +
+                    "WITH collect({billID: b.billID, vetoed: b.vetoed, active: b.active, title: b.officialTitle, enacted: b.enacted}) AS bills \n" +
+                    "RETURN {bills: bills} AS r ";
+
+    // Given a billID, find committe referred to, subjects and sponsors
+    var billInfoQuery = "MATCH (b:Bill {billID: {billID}})-[:REFERRED_TO]->(c:Committee) \n" +
+
+                        "MATCH (b)-[:SPONSORED_BY]->(l:Legislator)";
 
     /**
      * Clears the map. Remove all currently shown layers
@@ -239,7 +283,8 @@
                     '<div class="row">' +
                         '<ul>';
                 $.each(subjects, function(i,v) {
-                    text = text + '<li>' + v["subject"] + " (" + v["strength"] + ")";
+                    text = text + '<a href="#"><li class="committee-link" data-legislator="' + legislator["govtrackID"] + '"' + 'data-subject="' + v["subject"] + '">'
+                            + v["subject"] + " (" + v["strength"] + ")</li></a>";
                 });
                             text = text +
                         '</ul>' +
@@ -277,6 +322,22 @@
                 .openOn(map);
 
         popup.update();
+        registerHandlers();
+
+    }
+
+
+    function populateBillSidebar(bills) {
+        var text = "<ul>";
+
+        $.each(bills["bills"], function(i, v) {
+            text += "<li>" + v["billID"] + "</li>";
+        });
+
+        text += "</ul>";
+
+        $("#bill-panel-content").html(text);
+
 
     }
 
@@ -290,6 +351,41 @@
         infoDistrictWithinDistance(event.latlng, 10);
     }
 
+    /**
+     *  Register click handlers
+     */
+    function registerHandlers(){
+        $(".committee-link").click(function(e) {
+            //console.log(e);
+            var li = $(e.target);
+            console.log(li.data("subject"));
+            console.log(li.data("legislator"));
+
+            var subject = li.data("subject"),
+                legislator = li.data("legislator");
+
+            var params = {
+                "govtrackID": String(legislator),
+                "subject": subject
+            };
+
+            makeCypherRequest([{"statement": billsQuery, "parameters": params}], function (error, data) {
+
+                if (error) {
+                    console.log("Error");
+                    console.log(error);
+                } else {
+                    console.log(data);
+                    var bills = data["results"][0]["data"][0]["row"][0];
+                    console.log(bills);
+                    populateBillSidebar(bills);
+                }
+
+
+            })
+        });
+    }
+
 
     L.mapbox.accessToken = MB_API_TOKEN;
     var map = L.mapbox.map('map', 'mapbox.streets')
@@ -301,6 +397,19 @@
 
     });
 
+    $(document).ready(function() {
+        var polyline = L.polygon(district_geom["MT"]["0"]).addTo(map);
+        map.fitBounds(polyline.getBounds());
+        console.log(polyline);
+    });
+
+
+
+
+
+
 </script>
 </body>
+
+<script src='/lib/districts.js'></script>
 </html>
