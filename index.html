@@ -29,18 +29,23 @@
         .heading {
             margin-top: 0px;
             margin-bottom: 0px;
+            padding-top: 25px;
+        }
+
+        .top-row {
+            background: lightgray;
         }
 
     </style>
 </head>
 <body>
 <div id="desc">
-    <div class="row">
+    <div class="row top-row">
         <div class="col-xs-6">
             <h3 class="heading">Legis-graph-spatial <small>Click anywhere in the US to learn more.</small></h3>
         </div>
         <div class="col-xs-6">
-            <p class="lead">Do you know who your representative is? Click anywhere in the US to learn more about your representative and the subjects over which they have influence. <a href="#">How does it work?</a></p>
+            <p class="lead">Do you know who your representative is? Click anywhere in the US to learn more about your representative and the subjects over which they have influence. <a href="https://github.com/legis-graph/legis-graph-spatial">How does it work?</a></p>
         </div>
 
     </div>
@@ -287,7 +292,7 @@
      * @param event
      */
     function getClosestDistrict(event) {
-        infoDistrictWithinDistance(event.latlng, 10);
+        infoDistrictWithinDistance(event.latlng, 100);
     }
 
 
