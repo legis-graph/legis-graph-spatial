@@ -6,7 +6,7 @@ Adding geospatial indexing / querying to legis-graph as part of an interactive m
 - **[neo4j-spatial](https://github.com/neo4j-contrib/spatial)** to enable geospatial indexing and querying
 - **[Mapbox JS](https://www.mapbox.com/mapbox.js/api/v2.3.0/)** javascript mapping library 
 
-![](https://dl.dropboxusercontent.com/u/67572426/legis-graph-spatial.gif)
+![](http://s3.amazonaws.com/dev.assets.neo4j.com/wp-content/uploads/20160328110022/legis-graph-spatial.gif)
 
 See this blog post for more info.
 
@@ -166,7 +166,7 @@ function infoDistrictWithinDistance(latlng, distance) {
 
 #### Parse WKT into an array of points
 
-~~~ javacsript
+~~~ javascript
 
 /**
  *  Converts Polygon WKT string to an array of [x,y] points
