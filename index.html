@@ -56,18 +56,22 @@
     /**
      * Constants
      */
-    var findGeometriesPath = '/db/data/ext/SpatialPlugin/graphdb/findGeometriesWithinDistance';
-    var baseURI = 'http://52.70.212.93'; // Neo4j server with legis-graph configured
+    var baseURI = 'http://138.68.21.245:7474'; // Neo4j server with legis-graph configured
     var MB_API_TOKEN = "pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q";
 
-    var subjectsQuery = "MATCH (d:District {state: {state}, district: {district}}) \n" +
-            "MATCH (d)<-[:REPRESENTS]-(l:Legislator) \n" +
-            "MATCH (l)-[:SERVES_ON]->(c:Committee) \n" +
-            "MATCH (c)<-[:REFERRED_TO]-(b:Bill) \n" +
-            "MATCH (b)-[:DEALS_WITH]->(s:Subject) \n" +
-            "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
-            "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
-            "RETURN {legislator: legislator, subjects: subjects} AS r ";
+    var subjectsQuery = 
+        "MATCH (d:District {state: {state}, district: {district}}) \n" +
+        "MATCH (d)<-[:REPRESENTS]-(l:Legislator) \n" +
+        "MATCH (l)-[:SERVES_ON]->(c:Committee) \n" +
+        "MATCH (c)<-[:REFERRED_TO]-(b:Bill) \n" +
+        "MATCH (b)-[:DEALS_WITH]->(s:Subject) \n" +
+        "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
+        "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
+        "RETURN {legislator: legislator, subjects: subjects} AS r ";
+
+    var districtQuery =
+        "CALL spatial.withinDistance('geom', {latitude:{lat}, longitude:{lon}}, 1) YIELD node AS d \n" +
+        "RETURN d.wkt AS wkt, d.state AS state, d.district AS district;"
 
     /**
      * Clears the map. Remove all currently shown layers
@@ -90,9 +94,14 @@
      */
     function parseWKTPolygon(wkt) {
         var pointArr = [];
-        var points = wkt.slice(10, -3).split(",");
+        var points = wkt.slice(16, -4).split(",");
+        
+        // The geometries are MULTIPOLYGONS therefore there can be multiple polygons in each geometry
+        var polygons = wkt.slice(16, -4).split(")), ((");
+        var singlePolygonPoints = polygons[0].split(",");
 
-        $.each(points, function(i,v) {
+        // FIXME: parse all polygons instead of just the first
+        $.each(singlePolygonPoints, function(i,v) {
             var point = $.trim(v).split(" ");
             var xy = [Number(point[1]), Number(point[0])];
             pointArr.push(xy)
@@ -132,13 +141,12 @@
 
         var districtParams = {
             "layer": "geom",
-            "pointX": latlng.lng,
-            "pointY": latlng.lat,
+            "lon": latlng.lng,
+            "lat": latlng.lat,
             "distanceInKm": distance
         };
 
-        var districtURL = baseURI + findGeometriesPath;
-        makePOSTRequest(districtURL, districtParams, function (error, data) {
+        makeCypherRequest([{"statement": districtQuery, "parameters": districtParams}], function (error, data) {
 
             if (error) {
                 console.log("Error");
@@ -146,11 +154,11 @@
                 console.log(data);
 
                 var params = {
-                    "state": data[0]["data"]["state"],
-                    "district": data[0]["data"]["district"]
+                    "state": data["results"][0]["data"][0]["row"][1],
+                    "district": data["results"][0]["data"][0]["row"][2]
                 };
 
-                var points = parseWKTPolygon(data[0]["data"]["wkt"]);
+                var points = parseWKTPolygon(data["results"][0]["data"][0]["row"][0])
 
                 makeCypherRequest([{"statement": subjectsQuery, "parameters": params}], function (error, data) {
 
@@ -173,7 +181,7 @@
     }
 
     /**
-     *  Run a Cypher query
+     *  Run a Cypher query, call the callback with results
      */
     function makeCypherRequest(statements, callback) {
 
