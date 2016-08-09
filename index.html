@@ -65,14 +65,15 @@
     var session = driver.session();
 
     var subjectsQuery = 
-        "MATCH (d:District {state: {state}, district: {district}}) \n" +
+        "CALL spatial.withinDistance('geom', {latitude: {lat}, longitude: {lon}}, 1) YIELD node AS d \n" +
+        "WITH d, d.wkt AS wkt, d.state AS state, d.district AS district LIMIT 1 \n" +
         "MATCH (d)<-[:REPRESENTS]-(l:Legislator) \n" +
         "MATCH (l)-[:SERVES_ON]->(c:Committee) \n" +
         "MATCH (c)<-[:REFERRED_TO]-(b:Bill) \n" +
         "MATCH (b)-[:DEALS_WITH]->(s:Subject) \n" +
-        "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
-        "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
-        "RETURN {legislator: legislator, subjects: subjects} AS r LIMIT 1";
+        "WITH wkt, state, district, l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
+        "WITH wkt, state, district, {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
+        "RETURN {legislator: legislator, subjects: subjects, state: state, district: district} AS r, wkt LIMIT 1";
 
     var districtQuery =
         "CALL spatial.withinDistance('geom', {latitude:{lat}, longitude:{lon}}, 1) YIELD node AS d \n" +
@@ -127,32 +128,17 @@
         }
 
         session
-            .run(districtQuery, districtParams)
+            .run(subjectsQuery, districtParams)
             .then(function(result){
                 result.records.forEach(function(record) {
                     console.log(record);
-                    var params = {
-                         "state": record.get("state"),
-                         "district": record.get("district").toNumber()
-                    };
 
                     var points = parseWKTPolygon(record.get("wkt"));
+                    var districtInfo = record.get("r");
+                    districtInfo["points"] = points;
 
-                    session
-                        .run(subjectsQuery, params)
-                        .then(function(result){
-                            result.records.forEach(function(record) {
-                                var districtInfo = record.get("r");
-                                districtInfo["points"] = points;
-                                districtInfo["state"] = params["state"];
-                                districtInfo["district"] = params["district"];
-                                console.log(record);
+                    addDistrictToMap(districtInfo, latlng);
 
-                                addDistrictToMap(districtInfo, latlng);
-
-                            });
-
-                        })
                 });
 
             })
