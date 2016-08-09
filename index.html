@@ -9,6 +9,7 @@
     <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+    <script src="/lib/neo4j-web.min.js"></script>
     <style>
         body { margin:0; padding:0; }
         #map { position:absolute; top:100px; bottom:0; width:100%; }
@@ -52,12 +53,16 @@
 </div>
 <div id='map'></div>
 <script>
+ $(function(){
 
     /**
      * Constants
      */
-    var baseURI = 'http://138.68.21.245:7474'; // Neo4j server with legis-graph configured
+    var boltURI = 'bolt://138.68.21.245';
     var MB_API_TOKEN = "pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q";
+
+    var driver = neo4j.v1.driver(boltURI);
+    var session = driver.session();
 
     var subjectsQuery = 
         "MATCH (d:District {state: {state}, district: {district}}) \n" +
@@ -67,11 +72,11 @@
         "MATCH (b)-[:DEALS_WITH]->(s:Subject) \n" +
         "WITH l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
         "WITH {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
-        "RETURN {legislator: legislator, subjects: subjects} AS r ";
+        "RETURN {legislator: legislator, subjects: subjects} AS r LIMIT 1";
 
     var districtQuery =
         "CALL spatial.withinDistance('geom', {latitude:{lat}, longitude:{lon}}, 1) YIELD node AS d \n" +
-        "RETURN d.wkt AS wkt, d.state AS state, d.district AS district;"
+        "RETURN d.wkt AS wkt, d.state AS state, d.district AS district LIMIT 1;"
 
     /**
      * Clears the map. Remove all currently shown layers
@@ -111,99 +116,46 @@
         return pointArr;
     }
 
-    /**
-     * Make an AJAX POST request
-     */
-    function makePOSTRequest(url, params, callback) {
 
-        $.ajax({
-            type: 'POST',
-            data: JSON.stringify(params),
-            contentType: 'application/json',
-            url: url,
-            error: function(xhr, statusText, errorThrown) {
-                callback("Error", null);
-            },
-            //headers: authHeader()
-            success: function(data) {
-                console.log(data);
-                callback(null, data);
-            }
-        })
-    }
-
-
-    /**
-     *  Find the District for a given latlng.
-     *  Find the representative, commitees and subjects for that rep.
-     */
-    function infoDistrictWithinDistance(latlng, distance) {
-
+    function getDistricts(latlng, distance) {
+        
         var districtParams = {
             "layer": "geom",
             "lon": latlng.lng,
             "lat": latlng.lat,
             "distanceInKm": distance
-        };
+        }
 
-        makeCypherRequest([{"statement": districtQuery, "parameters": districtParams}], function (error, data) {
+        session
+            .run(districtQuery, districtParams)
+            .then(function(result){
+                result.records.forEach(function(record) {
+                    console.log(record);
+                    var params = {
+                         "state": record.get("state"),
+                         "district": record.get("district").toNumber()
+                    };
 
-            if (error) {
-                console.log("Error");
-            } else {
-                console.log(data);
+                    var points = parseWKTPolygon(record.get("wkt"));
 
-                var params = {
-                    "state": data["results"][0]["data"][0]["row"][1],
-                    "district": data["results"][0]["data"][0]["row"][2]
-                };
+                    session
+                        .run(subjectsQuery, params)
+                        .then(function(result){
+                            result.records.forEach(function(record) {
+                                var districtInfo = record.get("r");
+                                districtInfo["points"] = points;
+                                districtInfo["state"] = params["state"];
+                                districtInfo["district"] = params["district"];
+                                console.log(record);
 
-                var points = parseWKTPolygon(data["results"][0]["data"][0]["row"][0])
+                                addDistrictToMap(districtInfo, latlng);
 
-                makeCypherRequest([{"statement": subjectsQuery, "parameters": params}], function (error, data) {
+                            });
 
-                    if (error) {
-                        console.log("Error");
-                    } else {
-                        console.log(data);
-
-                        var districtInfo = data["results"][0]["data"][0]["row"][0];
-                        districtInfo["points"] = points;
-                        districtInfo["state"] = params["state"];
-                        districtInfo["district"] = params["district"];
-                        console.log(districtInfo);
-
-                        addDistrictToMap(districtInfo, latlng);
-                    }
+                        })
                 });
-            }
-        });
-    }
 
-    /**
-     *  Run a Cypher query, call the callback with results
-     */
-    function makeCypherRequest(statements, callback) {
-
-        var url = baseURI.replace(/\/db\/data.*/,"") + "/db/data/transaction/commit";
-
-        $.ajax({
-            type: 'POST',
-            data: JSON.stringify({
-                statements: statements
-            }),
-            contentType: 'application/json',
-            url: url,
-            error: function(xhr, statusText, errorThrown){
-                callback("Error", null);
-            },
-            //headers: authHeader(),
-            success: function(data) {
-                console.log(data);
-                callback(null, data);
-
-            }
-        });
+            })
     }
 
     /**
@@ -300,9 +252,8 @@
      * @param event
      */
     function getClosestDistrict(event) {
-        infoDistrictWithinDistance(event.latlng, 100);
+        getDistricts(event.latlng, 1);
     }
-
 
     L.mapbox.accessToken = MB_API_TOKEN;
     var map = L.mapbox.map('map', 'mapbox.streets')
@@ -313,6 +264,7 @@
         getClosestDistrict(e);
 
     });
+});
 
 </script>
 </body>
