@@ -8,24 +8,12 @@ Adding geospatial indexing / querying to legis-graph as part of an interactive m
 
 ![](http://s3.amazonaws.com/dev.assets.neo4j.com/wp-content/uploads/20160328110022/legis-graph-spatial.gif)
 
-See this blog post for more info.
+See [this blog post](http://www.lyonwj.com/2016/08/09/neo4j-spatial-procedures-congressional-boundaries/) for more info.
 
 ### Create spatial layer
 
 ```
-
-POST http://localhost:7474/db/data/ext/SpatialPlugin/graphdb/addEditableLayer
-
-Accept: application/json; charset=UTF-8
-
-Content-Type: application/json
-
-{
-  "layer" : "geom",
-  "format" : "WKT",
-  "nodePropertyName" : "wkt"
-}
-
+call spatial.addWKTLayer('geom', 'wkt')
 ```
 **From the [neo4j-spatial documentation](http://neo4j-contrib.github.io/spatial/#rest-api-create-a-wkt-layer), create a WKT layer.**
 
@@ -33,65 +21,31 @@ Content-Type: application/json
 ### Add nodes to the spatial layer
 
 ```
-Example request
-
-POST http://localhost:7474/db/data/ext/SpatialPlugin/graphdb/addNodeToLayer
-
-Accept: application/json; charset=UTF-8
-
-Content-Type: application/json
-
-{
-  "layer" : "geom",
-  "node" : "http://localhost:7575/db/data/node/54"
-}
-
+MATCH (d:District)
+WITH collect(d) AS districts
+CALL spatial.addNodes('geom', districts) YIELD node
+RETURN count(*)
 ```
-**From the [neo4j-spatial documentation](http://neo4j-contrib.github.io/spatial/#rest-api-add-a-node-to-the-spatial-index), add a node to the layer.**
-
-~~~ python
-
-import requests
-from py2neo import Graph
-
-# A Neo4j instance with Legis-Graph
-graph = Graph("http://52.70.212.93/db/data")
-baseURI = "http://52.70.212.93"
-
-# this function will add a node to a spatial layer
-def addNodeToLayer(layer, nodeId):
-    addNodeToLayerParams = {"node": baseURI+ "/db/data/node/" + str(nodeId), "layer": layer}
-    r = requests.post(baseURI + "/db/data/ext/SpatialPlugin/graphdb/addNodeToLayer", json=addNodeToLayerParams)
-
-# Find District nodes that have wkt property and are not part of the spatial index.
-# Add these nodes to the layer
-getIdsQuery = "MATCH (n:District) WHERE has(n.wkt) AND NOT (n)-[:RTREE_REFERENCE]-() RETURN id(n) AS n"
-results = graph.cypher.execute(getIdsQuery)
-for record in results:
-    nodeId = record.n
-    addNodeToLayer("geom", nodeId)
-
-~~~
-
-**This Python snippet queries the graph for nodes that have not yet been added to the spatial index and makes a REST request to add them to the index.**
 
 ### Spatial queries
 
 ```
-Example request
-
-POST http://localhost:7474/db/data/ext/SpatialPlugin/graphdb/findGeometriesWithinDistance
-
-Accept: application/json; charset=UTF-8
-
-Content-Type: application/json
-
-{
-  "layer" : "geom",
-  "pointX" : 15.0,
-  "pointY" : 60.0,
-  "distanceInKm" : 100
-}
+CALL spatial.withinDistance('geom',
+  {latitude: 37.563440, longitude: -122.322265}, 1) YIELD node AS d
+WITH d, d.wkt AS wkt, d.state AS state, d.district AS district LIMIT 1
+MATCH (d)<-[:REPRESENTS]-(l:Legislator)
+MATCH (l)-[:SERVES_ON]->(c:Committee)
+MATCH (c)<-[:REFERRED_TO]-(b:Bill)
+MATCH (b)-[:DEALS_WITH]->(s:Subject)
+WITH wkt, state, district, l.govtrackID AS govtrackID, l.lastName AS lastName,
+  l.firstName AS firstName, l.currentParty AS party, s.title AS subject,
+  count(*) AS strength, collect(DISTINCT c.name) AS committees
+ORDER BY strength DESC LIMIT 10
+WITH wkt, state, district, {lastName: lastName, firstName: firstName,
+  govtrackID: govtrackID, party: party, committees: committees} AS legislator,
+  collect({subject: subject, strength: strength}) AS subjects
+RETURN {legislator: legislator, subjects: subjects, state: state,
+  district: district} AS r, wkt LIMIT 1
 ```
 **From the [neo4j-spatial documentation](http://neo4j-contrib.github.io/spatial/#rest-api-find-geometries-within--distance), finding geometries within distance of a point**
 

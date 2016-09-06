@@ -95,27 +95,28 @@
         }
     }
 
-    /**
-     *  Converts Polygon WKT string to an array of [x,y] points
-     */
-    function parseWKTPolygon(wkt) {
-        var pointArr = [];
-        var points = wkt.slice(16, -4).split(",");
-        
-        // The geometries are MULTIPOLYGONS therefore there can be multiple polygons in each geometry
-        var polygons = wkt.slice(16, -4).split(")), ((");
-        var singlePolygonPoints = polygons[0].split(",");
+     /**
+      *  Converts Polygon WKT string to an array of arrays of [x,y] points.
+      *  Each outer array represents one polygon of the multi-polygon set.
+      *  Each inner array is a collection of points on the map for a single polygon.
+      */
+     function parseWKTPolygons(wkt) {
+         var pointArr = [];
+         var points = wkt.slice(16, -4).split(",");
 
-        // FIXME: parse all polygons instead of just the first
-        $.each(singlePolygonPoints, function(i,v) {
-            var point = $.trim(v).split(" ");
-            var xy = [Number(point[1]), Number(point[0])];
-            pointArr.push(xy)
+         // The geometries are MULTIPOLYGONS therefore there can be multiple polygons in each geometry
+         var polygons = wkt.slice(16, -4).split(")), ((").map(function (polygon) {
+             return polygon.split(", ").map(function (pair) {
+                 return pair.split(" ").reverse().map(function (num) {
+                     return parseFloat(num);
+                 })
+             }).filter(function (point) {
+                 return !(isNaN(point[0]) || isNaN(point[1]));
+             });
+         });
 
-        });
-
-        return pointArr;
-    }
+         return polygons;
+     }
 
 
     function getDistricts(latlng, distance) {
@@ -133,11 +134,8 @@
                 result.records.forEach(function(record) {
                     console.log(record);
 
-                    var points = parseWKTPolygon(record.get("wkt"));
-                    var districtInfo = record.get("r");
-                    districtInfo["points"] = points;
-
-                    addDistrictToMap(districtInfo, latlng);
+                    drawPolygons(parseWKTPolygons(record.get("wkt")), 'brown');
+                    addDistrictPopup(record.get("r"), latlng);
 
                 });
 
@@ -214,13 +212,9 @@
      * @param data
      * @param latlng
      */
-    function addDistrictToMap(data, latlng) {
-        polygon_points = data["points"];
+    function addDistrictPopup(data, latlng) {
 
         popuptext = buildPopup(data);
-
-        var polyline = L.polygon(polygon_points, {color: 'brown'}).addTo(map);
-        map.fitBounds(polyline.getBounds());
 
         var popup = L.popup({keepInView: true, minWidth: 350, maxWidth: 1000});
         popup.setLatLng(latlng)
@@ -231,6 +225,27 @@
 
     }
 
+     function drawPolygons(polygons, color) {
+         var bounds = null;
+
+         console.log("Drawing " + polygons.length + " polygons");
+         $.each(polygons, function (i, points) {
+             try {
+                 console.log("Drawing polygon " + (i + 1) + "/" + polygons.length + " of " + points.length + " points");
+                 var polyline = L.polygon(points, {color: color}).addTo(map);
+                 if (bounds == null) {
+                     bounds = polyline.getBounds();
+                 } else {
+                     bounds.extend(polyline.getBounds());
+                 }
+             } catch (err) {
+                 console.log("Failed to draw polygon " + (i + 1) + "/" + polygons.length + ": " + err);
+             }
+         });
+         if (bounds) {
+             map.fitBounds(bounds);
+         }
+     }
 
     /**
      * Event handler for map click
